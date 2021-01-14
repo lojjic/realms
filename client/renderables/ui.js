@@ -1,11 +1,15 @@
 import {
   CanvasTexture,
+  Group,
   Mesh,
   MeshBasicMaterial,
   PlaneBufferGeometry,
   sRGBEncoding,
   Vector3,
 } from '../core/three.js';
+import {
+  Text
+} from '../core/troika-three-text.js'
 
 // A general purpose UI class
 
@@ -75,6 +79,9 @@ class UI extends Mesh {
     this.renderer = renderer;
     this.styles = styles;
     this.texture = texture;
+    this.add(this.textGroup = new Group())
+    this.textGroup.position.set(-0.5, 0.5, 0)
+    this.textGroup.scale.set(1 / textureWidth, 1 / textureHeight, 0)
     this.draw();
   }
 
@@ -94,6 +101,7 @@ class UI extends Mesh {
       styles,
       texture,
     } = this;
+    const textConfigs = []
     ctx.clearRect(0, 0, renderer.width, renderer.height);
     ctx.fillStyle = styles.background;
     ctx.fillRect(0, 0, renderer.width, renderer.height);
@@ -137,15 +145,17 @@ class UI extends Mesh {
       ctx.fill();
       ctx.stroke();
       if (label) {
-        ctx.fillStyle = color || button.color;
-        ctx.font = font || button.font || styles.font;
-        ctx.textAlign = textAlign || button.textAlign || styles.textAlign;
-        ctx.textBaseline = textBaseline || button.textBaseline || styles.textBaseline;
-        ctx.fillText(
-          label,
-          width * 0.5,
-          height * 0.5 + (textOffset || 1)
-        );
+        textConfigs.push(Object.assign(
+          parseFontStyle(font || button.font || styles.font),
+          {
+            text: label,
+            color: color || button.color,
+            anchorX: textAlign || button.textAlign || styles.textAlign,
+            anchorY: textBaseline || button.textBaseline || styles.textBaseline,
+            x: (x + width * 0.5),
+            y: -(y + height * 0.5 + (textOffset || 0))
+          }
+        ))
       }
       ctx.restore();
     });
@@ -162,15 +172,39 @@ class UI extends Mesh {
       if (isVisible === false || !text) {
         return;
       }
-      ctx.save();
-      ctx.fillStyle = color || styles.color;
-      ctx.font = font || styles.font;
-      ctx.textAlign = textAlign || styles.textAlign;
-      ctx.textBaseline = textBaseline || styles.textBaseline;
-      ctx.fillText(text, x, y);
-      ctx.restore();
+      textConfigs.push(Object.assign(
+        parseFontStyle(font || styles.font),
+        {
+          text,
+          color: color || styles.color,
+          anchorX: textAlign || styles.textAlign,
+          anchorY: textBaseline || styles.textBaseline,
+          x: x,
+          y: -y
+        }
+      ))
     });
     texture.needsUpdate = true;
+
+    // Reconcile text labels to Text children:
+    const textChildren = this.textGroup.children
+    while (textChildren.length > textConfigs.length) {
+      const child = textChildren.pop()
+      child.dispose()
+    }
+    while (textChildren.length < textConfigs.length) {
+      const textObj = new Text()
+      textObj.depthOffset = -1
+      this.textGroup.add(textObj)
+    }
+    textConfigs.forEach((cfg, i) => {
+      let child = textChildren[i]
+      child.position.set(cfg.x, cfg.y, 0)
+      delete cfg.x
+      delete cfg.y
+      Object.assign(child, cfg)
+      child.sync()
+    })
   }
 
   onPointer(point) {
@@ -203,6 +237,18 @@ class UI extends Mesh {
         break;
       }
     }
+  }
+}
+
+function parseFontStyle(str) {
+  // This is pretty fragile
+  let [, weight, size, family] = str.match(/^(\d+)\s+(\d+)px\s+(\w+)$/)
+  if (family === 'monospace') {
+    family = 'https://fonts.gstatic.com/s/firamono/v9/N0bX2SlFPv1weGeLZDtQIg.woff' //Fira Mono
+  }
+  return {
+    fontSize: +size,
+    font: family
   }
 }
 
